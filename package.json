@@ -1,0 +1,12 @@
+{
+  "name": "jiyu-ni-ongaku",
+  "version": "1.0.0",
+  "private": true,
+  "description": "じゆうに おんがく！ - Kids music creation game",
+  "scripts": {
+    "dev": "serve . -l 3000 --cors",
+    "build": "node build.js",
+    "deploy": "node build.js && echo 'Run: gsutil -m rsync -r dist gs://YOUR_BUCKET_NAME/'"
+  },
+  "license": "ISC"
+}
