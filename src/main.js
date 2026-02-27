@@ -2,7 +2,7 @@
 import { renderTitle } from './title.js';
 import { renderGame } from './game.js';
 import { renderGallery } from './gallery.js';
-import { stopPlayback } from './audio.js';
+import { stopPlayback, loadCustomInstrumentsMeta } from './audio.js';
 
 const app = document.getElementById('app');
 
@@ -33,6 +33,9 @@ function router() {
 }
 
 window.addEventListener('hashchange', router);
+
+// Load custom instruments from localStorage
+loadCustomInstrumentsMeta();
 
 // Initial route
 router();

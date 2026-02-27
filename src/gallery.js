@@ -1,5 +1,5 @@
 // ===== Gallery Screen =====
-import { INSTRUMENTS, STEPS, startPlayback, stopPlayback, isPlaying } from './audio.js';
+import { INSTRUMENTS, STEPS, startPlayback, stopPlayback, isPlaying, registerSongCustomInstruments } from './audio.js';
 import {
   getMySongs, getAllSongs, deleteSong, isMySong,
   shareToLine, downloadSong, getSong, isCloudMode
@@ -72,6 +72,9 @@ export function renderGallery(container) {
 
         const fullSong = await getSong(songId);
         if (fullSong && fullSong.grid) {
+          if (fullSong.customInstruments) {
+            await registerSongCustomInstruments(fullSong.customInstruments);
+          }
           playingSongId = songId;
           btn.textContent = '\u23F9 とめる';
           btn.classList.add('playing');
@@ -184,7 +187,7 @@ export function renderGallery(container) {
         <div class="song-meta">
           <span>${bpmText}</span>
         </div>
-        ${song.grid ? renderMiniGrid(song.grid, song.id) : ''}
+        ${song.grid ? renderMiniGrid(song.grid, song.id, song.customInstruments) : ''}
         <div class="song-actions">
           <button class="btn-sm btn-play-song" data-id="${song.id}">\u25B6 きく</button>
           <button class="btn-sm btn-edit-song" data-id="${song.id}">\u270F\uFE0F へんしゅう</button>
@@ -205,12 +208,15 @@ export function renderGallery(container) {
 }
 
 // ===== Mini Grid Visualization =====
-function renderMiniGrid(grid, songId) {
+function renderMiniGrid(grid, songId, songCustomInstruments) {
   let html = `<div class="mini-grid" data-mini-grid="${songId}">`;
+
+  // Built-in instruments
   INSTRUMENTS.forEach(inst => {
+    const steps = grid[inst.id] || [];
+    if (!steps.some(v => v)) return; // skip empty rows in mini view
     html += '<div class="mini-row">';
     html += `<span class="mini-label">${inst.emoji}</span>`;
-    const steps = grid[inst.id] || [];
     for (let i = 0; i < STEPS; i++) {
       const active = steps[i] ? 'active' : '';
       const bg = steps[i] ? `background-color:${inst.color}` : '';
@@ -218,6 +224,23 @@ function renderMiniGrid(grid, songId) {
     }
     html += '</div>';
   });
+
+  // Custom instruments from song data
+  if (songCustomInstruments) {
+    songCustomInstruments.forEach(ci => {
+      const steps = grid[ci.id] || [];
+      if (!steps.some(v => v)) return;
+      html += '<div class="mini-row">';
+      html += `<span class="mini-label">\u{1F3A4}</span>`;
+      for (let i = 0; i < STEPS; i++) {
+        const active = steps[i] ? 'active' : '';
+        const bg = steps[i] ? `background-color:${ci.color}` : '';
+        html += `<div class="mini-cell ${active}" data-mini-step="${i}" data-mini-inst="${ci.id}" style="${bg}"></div>`;
+      }
+      html += '</div>';
+    });
+  }
+
   html += '</div>';
   return html;
 }

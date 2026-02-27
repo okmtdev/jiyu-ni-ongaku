@@ -5,6 +5,7 @@ let audioCtx = null;
 export function getAudioContext() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    decodeAllCustomInstruments();
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
@@ -26,10 +27,165 @@ export const INSTRUMENTS = [
   { id: 'rin',   name: 'りん',   emoji: '\u{1F48E}', color: '#00CEC9' },
 ];
 
+// ===== Custom Instruments =====
+const customInstrumentMap = new Map();
+const MAX_CUSTOM_INSTRUMENTS = 3;
+
+export function getAllInstruments() {
+  return [
+    ...INSTRUMENTS,
+    ...Array.from(customInstrumentMap.values()).map(ci => ({
+      id: ci.id, name: ci.name, emoji: '\u{1F3A4}', color: ci.color, custom: true,
+    })),
+  ];
+}
+
+export function getCustomInstruments() {
+  return Array.from(customInstrumentMap.values());
+}
+
+export function getCustomInstrumentCount() {
+  return customInstrumentMap.size;
+}
+
+export function getMaxCustomInstruments() {
+  return MAX_CUSTOM_INSTRUMENTS;
+}
+
+// Load custom instrument metadata from localStorage (no decoding yet)
+export function loadCustomInstrumentsMeta() {
+  try {
+    const data = JSON.parse(localStorage.getItem('ongaku_customInstruments') || '[]');
+    for (const item of data) {
+      customInstrumentMap.set(item.id, {
+        id: item.id, name: item.name, color: item.color,
+        audioData: item.audioData, audioBuffer: null,
+      });
+    }
+  } catch (e) {
+    console.error('Failed to load custom instruments:', e);
+  }
+}
+
+function saveCustomInstrumentsToStorage() {
+  const data = Array.from(customInstrumentMap.values()).map(ci => ({
+    id: ci.id, name: ci.name, color: ci.color, audioData: ci.audioData,
+  }));
+  localStorage.setItem('ongaku_customInstruments', JSON.stringify(data));
+}
+
+async function decodeAllCustomInstruments() {
+  for (const [, inst] of customInstrumentMap) {
+    if (!inst.audioBuffer && inst.audioData && audioCtx) {
+      try {
+        const response = await fetch(inst.audioData);
+        const arrayBuffer = await response.arrayBuffer();
+        inst.audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      } catch (e) {
+        console.error('Failed to decode custom instrument:', inst.id, e);
+      }
+    }
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Record a sound from microphone (returns Promise<{ audioData }>)
+export async function recordSound(durationMs = 1500) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mediaRecorder = new MediaRecorder(stream);
+  const chunks = [];
+
+  return new Promise((resolve, reject) => {
+    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, { type: mediaRecorder.mimeType });
+      const audioData = await blobToDataUrl(blob);
+      resolve({ audioData });
+    };
+    mediaRecorder.onerror = (e) => {
+      stream.getTracks().forEach(t => t.stop());
+      reject(e);
+    };
+    mediaRecorder.start();
+    setTimeout(() => {
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+    }, durationMs);
+  });
+}
+
+// Preview a recorded sound from audioData
+export async function previewRecordedSound(audioData) {
+  const ctx = getAudioContext();
+  const response = await fetch(audioData);
+  const arrayBuffer = await response.arrayBuffer();
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  const source = ctx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(ctx.destination);
+  source.start(ctx.currentTime);
+}
+
+// Add a custom instrument (returns the instrument definition)
+export async function addCustomInstrument(name, color, audioData) {
+  const ctx = getAudioContext();
+  const id = 'custom_' + Date.now();
+  const response = await fetch(audioData);
+  const arrayBuffer = await response.arrayBuffer();
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  customInstrumentMap.set(id, { id, name, color, audioData, audioBuffer });
+  saveCustomInstrumentsToStorage();
+  return { id, name, emoji: '\u{1F3A4}', color, custom: true };
+}
+
+// Register custom instruments from a loaded song (for playback)
+export async function registerSongCustomInstruments(songCustomInstruments) {
+  if (!songCustomInstruments) return;
+  for (const ci of songCustomInstruments) {
+    if (!customInstrumentMap.has(ci.id) && ci.audioData) {
+      try {
+        const ctx = getAudioContext();
+        const response = await fetch(ci.audioData);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        customInstrumentMap.set(ci.id, {
+          id: ci.id, name: ci.name, color: ci.color,
+          audioData: ci.audioData, audioBuffer,
+        });
+      } catch (e) {
+        console.error('Failed to register song custom instrument:', ci.id, e);
+      }
+    }
+  }
+}
+
+export function removeCustomInstrument(id) {
+  customInstrumentMap.delete(id);
+  saveCustomInstrumentsToStorage();
+}
+
+// Get exportable data for custom instruments used in a grid
+export function getCustomInstrumentsForSave(grid) {
+  const result = [];
+  for (const [id, inst] of customInstrumentMap) {
+    if (grid[id] && grid[id].some(v => v !== 0)) {
+      result.push({ id: inst.id, name: inst.name, color: inst.color, audioData: inst.audioData });
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}
+
 // ===== Create an empty grid =====
 export function createEmptyGrid() {
   const grid = {};
-  INSTRUMENTS.forEach(inst => {
+  getAllInstruments().forEach(inst => {
     grid[inst.id] = new Array(STEPS).fill(0);
   });
   return grid;
@@ -232,8 +388,42 @@ const soundFunctions = {
 // ===== Play a single instrument sound =====
 export function playSound(instrumentId) {
   const ctx = getAudioContext();
+
+  // Check custom instruments first
+  const custom = customInstrumentMap.get(instrumentId);
+  if (custom) {
+    if (custom.audioBuffer) {
+      const source = ctx.createBufferSource();
+      source.buffer = custom.audioBuffer;
+      source.connect(ctx.destination);
+      source.start(ctx.currentTime);
+    } else if (custom.audioData) {
+      // Lazy decode and play
+      ensureDecode(custom).then(buffer => {
+        if (buffer) {
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(ctx.currentTime);
+        }
+      });
+    }
+    return;
+  }
+
   const fn = soundFunctions[instrumentId];
   if (fn) fn(ctx, ctx.currentTime);
+}
+
+async function ensureDecode(inst) {
+  if (inst.audioBuffer) return inst.audioBuffer;
+  if (!audioCtx || !inst.audioData) return null;
+  try {
+    const response = await fetch(inst.audioData);
+    const arrayBuffer = await response.arrayBuffer();
+    inst.audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    return inst.audioBuffer;
+  } catch { return null; }
 }
 
 // ===== Sequencer Playback =====
@@ -250,11 +440,11 @@ export function startPlayback(grid, bpm, onStep, loop = true) {
     if (!playbackState || !playbackState.playing) return;
 
     // Play active instruments at this step
-    INSTRUMENTS.forEach(inst => {
-      if (grid[inst.id] && grid[inst.id][step]) {
-        playSound(inst.id);
+    for (const instId of Object.keys(grid)) {
+      if (grid[instId][step]) {
+        playSound(instId);
       }
-    });
+    }
 
     onStep(step);
     step++;

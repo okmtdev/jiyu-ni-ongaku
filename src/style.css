@@ -631,6 +631,118 @@ body {
   outline: 1px solid rgba(0, 0, 0, 0.4);
 }
 
+/* ===== Record Modal ===== */
+.record-modal {
+  max-width: 360px;
+}
+
+.record-hint {
+  font-size: 16px;
+  color: #636E72;
+  margin-bottom: 16px;
+}
+
+.record-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  font-size: 36px;
+  background: #FF6B6B;
+  color: white;
+  box-shadow: 0 6px 0 #D63031;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+
+.record-btn:active {
+  box-shadow: 0 3px 0 #D63031;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #FF6B6B;
+  padding: 20px 0;
+}
+
+.record-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #FF6B6B;
+  animation: recordPulse 1s ease-in-out infinite;
+}
+
+@keyframes recordPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.btn-preview {
+  background: #4D96FF;
+  color: white;
+  font-size: 16px;
+  padding: 8px 20px;
+  box-shadow: 0 4px 0 #2D6CDF;
+  margin-bottom: 14px;
+}
+
+.color-picker {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 14px 0;
+}
+
+.color-option {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid transparent;
+  transition: border-color 0.2s, transform 0.1s;
+}
+
+.color-option:active {
+  transform: scale(0.9);
+}
+
+.color-option.selected {
+  border-color: #2D3436;
+  transform: scale(1.1);
+}
+
+/* ===== Custom Label ===== */
+.custom-label {
+  position: relative;
+}
+
+.label-delete {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  background: #FF6B6B;
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.label-delete:active {
+  transform: scale(0.9);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 400px) {
   .title-text {

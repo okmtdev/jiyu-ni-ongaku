@@ -1,9 +1,16 @@
 // ===== Music Sequencer Game Screen =====
 import {
-  INSTRUMENTS, STEPS, createEmptyGrid,
-  playSound, startPlayback, stopPlayback, isPlaying
+  INSTRUMENTS, STEPS, createEmptyGrid, getAllInstruments,
+  playSound, startPlayback, stopPlayback, isPlaying,
+  recordSound, previewRecordedSound, addCustomInstrument,
+  removeCustomInstrument, getCustomInstrumentCount,
+  getMaxCustomInstruments, getCustomInstrumentsForSave,
+  registerSongCustomInstruments,
 } from './audio.js';
 import { saveSong, getSong, getNextSongNumber } from './api.js';
+
+// ===== Custom Instrument Colors =====
+const CUSTOM_COLORS = ['#E84393', '#00B894', '#6C5CE7', '#FDCB6E', '#E17055'];
 
 // ===== Preset Patterns =====
 const PRESETS = {
@@ -78,33 +85,31 @@ const PRESETS = {
 function applyPreset(grid, presetName) {
   const preset = PRESETS[presetName];
   if (!preset) return;
-  INSTRUMENTS.forEach(inst => {
+  Object.keys(grid).forEach(instId => {
     for (let i = 0; i < STEPS; i++) {
-      grid[inst.id][i] = preset[inst.id] ? preset[inst.id][i] : 0;
+      grid[instId][i] = preset[instId] ? preset[instId][i] : 0;
     }
   });
 }
 
 function randomizeGrid(grid) {
-  INSTRUMENTS.forEach(inst => {
+  Object.keys(grid).forEach(instId => {
     for (let i = 0; i < STEPS; i++) {
-      grid[inst.id][i] = Math.random() < 0.2 ? 1 : 0;
+      grid[instId][i] = Math.random() < 0.2 ? 1 : 0;
     }
   });
 }
 
 function clearGrid(grid) {
-  INSTRUMENTS.forEach(inst => {
+  Object.keys(grid).forEach(instId => {
     for (let i = 0; i < STEPS; i++) {
-      grid[inst.id][i] = 0;
+      grid[instId][i] = 0;
     }
   });
 }
 
 function isGridEmpty(grid) {
-  return INSTRUMENTS.every(inst =>
-    grid[inst.id].every(v => v === 0)
-  );
+  return Object.values(grid).every(steps => steps.every(v => v === 0));
 }
 
 // ===== Render Game Screen =====
@@ -139,6 +144,7 @@ export function renderGame(container, songId = null, autoplay = false) {
       </div>
       <div class="game-footer">
         <button class="btn btn-play" id="btn-play">\u25B6 さいせい</button>
+        <button class="btn btn-action" id="btn-record">\u{1F3A4} ろくおん</button>
         <button class="btn btn-save" id="btn-save">\u{1F4BE} ほぞん</button>
       </div>
     </div>
@@ -150,15 +156,24 @@ export function renderGame(container, songId = null, autoplay = false) {
   const bpmDisplay = document.getElementById('bpm-display');
 
   // Build the grid UI
-  buildGrid(gridContainer, grid);
+  function rebuildGrid() {
+    buildGrid(gridContainer, grid, (instId) => {
+      // Delete custom instrument callback
+      delete grid[instId];
+      removeCustomInstrument(instId);
+      rebuildGrid();
+    });
+  }
+  rebuildGrid();
 
   // Load existing song if editing
   if (songId) {
-    loadSong(songId, grid, bpm).then(song => {
+    loadSong(songId, grid).then(song => {
       if (song) {
         bpm = song.bpm || 120;
         bpmDisplay.textContent = `\u266A ${bpm}`;
         currentSongName = song.name || '';
+        rebuildGrid();
         refreshGridUI(gridContainer, grid);
         if (autoplay) {
           togglePlay();
@@ -216,6 +231,19 @@ export function renderGame(container, songId = null, autoplay = false) {
 
   btnPlay.addEventListener('click', togglePlay);
 
+  // Record custom instrument
+  document.getElementById('btn-record').addEventListener('click', () => {
+    if (getCustomInstrumentCount() >= getMaxCustomInstruments()) {
+      showMessage(container, `じぶんのおとは ${getMaxCustomInstruments()}こまで だよ`);
+      return;
+    }
+    showRecordModal(container, (newInst) => {
+      // Add new instrument row to grid
+      grid[newInst.id] = new Array(STEPS).fill(0);
+      rebuildGrid();
+    });
+  });
+
   // Save
   btnSave.addEventListener('click', () => {
     if (isGridEmpty(grid)) {
@@ -228,6 +256,7 @@ export function renderGame(container, songId = null, autoplay = false) {
         name: name,
         bpm: bpm,
         grid: grid,
+        customInstruments: getCustomInstrumentsForSave(grid),
       });
       currentSongId = song.id;
       currentSongName = song.name;
@@ -264,19 +293,38 @@ export function renderGame(container, songId = null, autoplay = false) {
 }
 
 // ===== Build Grid =====
-function buildGrid(container, grid) {
+function buildGrid(container, grid, onDeleteCustom) {
   container.innerHTML = '';
 
-  INSTRUMENTS.forEach(inst => {
+  getAllInstruments().forEach(inst => {
+    // Ensure grid has a row for this instrument
+    if (!grid[inst.id]) {
+      grid[inst.id] = new Array(STEPS).fill(0);
+    }
+
     const row = document.createElement('div');
     row.className = 'grid-row';
 
     // Instrument label
     const label = document.createElement('div');
     label.className = 'grid-label';
+    if (inst.custom) label.classList.add('custom-label');
     label.style.backgroundColor = inst.color;
     label.innerHTML = `<span class="label-emoji">${inst.emoji}</span><span class="label-name">${inst.name}</span>`;
     label.addEventListener('click', () => playSound(inst.id));
+
+    // Delete button for custom instruments
+    if (inst.custom && onDeleteCustom) {
+      const deleteBtn = document.createElement('span');
+      deleteBtn.className = 'label-delete';
+      deleteBtn.textContent = '\u00D7';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onDeleteCustom(inst.id);
+      });
+      label.appendChild(deleteBtn);
+    }
+
     row.appendChild(label);
 
     // Beat cells
@@ -317,11 +365,11 @@ function buildGrid(container, grid) {
 
 // ===== Refresh Grid UI from data =====
 function refreshGridUI(container, grid) {
-  INSTRUMENTS.forEach(inst => {
+  getAllInstruments().forEach(inst => {
     for (let i = 0; i < STEPS; i++) {
       const cell = container.querySelector(`[data-inst="${inst.id}"][data-step="${i}"]`);
       if (!cell) continue;
-      if (grid[inst.id][i]) {
+      if (grid[inst.id] && grid[inst.id][i]) {
         cell.classList.add('active');
         cell.style.backgroundColor = inst.color;
       } else {
@@ -334,7 +382,6 @@ function refreshGridUI(container, grid) {
 
 // ===== Playback Highlight =====
 function highlightStep(container, step) {
-  // Remove previous highlights
   container.querySelectorAll('.current-step').forEach(cell => {
     cell.classList.remove('current-step');
     cell.classList.remove('cell-pop');
@@ -342,7 +389,6 @@ function highlightStep(container, step) {
 
   if (step < 0) return;
 
-  // Add highlight to current column
   container.querySelectorAll(`[data-step="${step}"]`).forEach(cell => {
     cell.classList.add('current-step');
     if (cell.classList.contains('active')) {
@@ -359,14 +405,20 @@ function clearStepHighlight() {
 }
 
 // ===== Load Song =====
-async function loadSong(songId, grid, bpm) {
+async function loadSong(songId, grid) {
   try {
     const song = await getSong(songId);
     if (!song) return null;
 
+    // Register custom instruments from the song
+    if (song.customInstruments) {
+      await registerSongCustomInstruments(song.customInstruments);
+    }
+
     // Apply song data to grid
-    INSTRUMENTS.forEach(inst => {
+    getAllInstruments().forEach(inst => {
       if (song.grid && song.grid[inst.id]) {
+        if (!grid[inst.id]) grid[inst.id] = new Array(STEPS).fill(0);
         for (let i = 0; i < STEPS; i++) {
           grid[inst.id][i] = song.grid[inst.id][i] || 0;
         }
@@ -377,6 +429,130 @@ async function loadSong(songId, grid, bpm) {
   } catch {
     return null;
   }
+}
+
+// ===== Recording Modal =====
+function showRecordModal(container, onComplete) {
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    showMessage(container, 'このブラウザでは ろくおんできないよ');
+    return;
+  }
+
+  let recordedAudioData = null;
+  let selectedColor = CUSTOM_COLORS[0];
+  const defaultName = `おと ${getCustomInstrumentCount() + 1}`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box record-modal">
+      <div class="modal-title">\u{1F3A4} おとを ろくおんしよう！</div>
+
+      <div id="rec-phase-ready">
+        <p class="record-hint">ボタンをおして おとをだしてね</p>
+        <button class="btn record-btn" id="rec-start">\u{1F3A4}</button>
+      </div>
+
+      <div id="rec-phase-recording" style="display:none">
+        <div class="recording-indicator">
+          <div class="record-dot"></div>
+          <span>ろくおんちゅう...</span>
+        </div>
+      </div>
+
+      <div id="rec-phase-done" style="display:none">
+        <button class="btn btn-preview" id="rec-preview">\u25B6 きいてみる</button>
+        <input type="text" class="modal-input" id="rec-name" value="${defaultName}" maxlength="10">
+        <div class="color-picker" id="rec-colors">
+          ${CUSTOM_COLORS.map((c, i) =>
+            `<div class="color-option${i === 0 ? ' selected' : ''}" data-color="${c}" style="background:${c}"></div>`
+          ).join('')}
+        </div>
+        <div class="modal-buttons">
+          <button class="btn btn-modal-cancel" id="rec-retry">もういちど</button>
+          <button class="btn btn-modal-ok" id="rec-save">ほぞん</button>
+        </div>
+      </div>
+
+      <div class="modal-buttons" id="rec-cancel-area">
+        <button class="btn btn-modal-cancel" id="rec-cancel">やめる</button>
+      </div>
+    </div>
+  `;
+
+  container.appendChild(overlay);
+
+  const phaseReady = document.getElementById('rec-phase-ready');
+  const phaseRecording = document.getElementById('rec-phase-recording');
+  const phaseDone = document.getElementById('rec-phase-done');
+
+  function showPhase(phase) {
+    phaseReady.style.display = phase === 'ready' ? '' : 'none';
+    phaseRecording.style.display = phase === 'recording' ? '' : 'none';
+    phaseDone.style.display = phase === 'done' ? '' : 'none';
+  }
+
+  function close() {
+    overlay.remove();
+  }
+
+  // Cancel
+  document.getElementById('rec-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+
+  // Start recording
+  document.getElementById('rec-start').addEventListener('click', async () => {
+    showPhase('recording');
+    try {
+      const result = await recordSound(1500);
+      recordedAudioData = result.audioData;
+      showPhase('done');
+    } catch (e) {
+      if (e.name === 'NotAllowedError') {
+        showMessage(container, 'マイクを つかえるようにしてね');
+      } else {
+        showMessage(container, 'ろくおんできなかったよ');
+      }
+      showPhase('ready');
+    }
+  });
+
+  // Preview
+  document.getElementById('rec-preview').addEventListener('click', () => {
+    if (recordedAudioData) {
+      previewRecordedSound(recordedAudioData);
+    }
+  });
+
+  // Re-record
+  document.getElementById('rec-retry').addEventListener('click', () => {
+    recordedAudioData = null;
+    showPhase('ready');
+  });
+
+  // Color selection
+  document.getElementById('rec-colors').addEventListener('click', (e) => {
+    const opt = e.target.closest('.color-option');
+    if (!opt) return;
+    selectedColor = opt.dataset.color;
+    document.querySelectorAll('#rec-colors .color-option').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+  });
+
+  // Save
+  document.getElementById('rec-save').addEventListener('click', async () => {
+    if (!recordedAudioData) return;
+    const name = document.getElementById('rec-name').value.trim() || defaultName;
+    try {
+      const newInst = await addCustomInstrument(name, selectedColor, recordedAudioData);
+      close();
+      onComplete(newInst);
+    } catch {
+      showMessage(container, 'ほぞんできなかったよ');
+    }
+  });
 }
 
 // ===== Save Modal =====
