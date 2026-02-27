@@ -21,6 +21,9 @@ export const INSTRUMENTS = [
   { id: 'piko',  name: 'ぴこ',   emoji: '\u2B50',    color: '#4D96FF' },
   { id: 'poron', name: 'ぽろん', emoji: '\u{1F3B8}', color: '#FF6FB7' },
   { id: 'shara', name: 'しゃら', emoji: '\u{1F3B6}', color: '#C084FC' },
+  { id: 'pyu',   name: 'ぷー',   emoji: '\u{1F3BA}', color: '#FF9F43' },
+  { id: 'ton',   name: 'とん',   emoji: '\u270A',    color: '#A0855B' },
+  { id: 'rin',   name: 'りん',   emoji: '\u{1F48E}', color: '#00CEC9' },
 ];
 
 // ===== Create an empty grid =====
@@ -139,6 +142,81 @@ function playShara(ctx, time) {
   source.start(time);
 }
 
+function playPyu(ctx, time) {
+  // Horn / trumpet-like brass sound
+  const osc = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(220, time);
+  osc.frequency.linearRampToValueAtTime(240, time + 0.05);
+  osc.frequency.setValueAtTime(220, time + 0.05);
+  osc2.type = 'sawtooth';
+  osc2.frequency.setValueAtTime(221, time);
+  gain.gain.setValueAtTime(0.15, time);
+  gain.gain.setValueAtTime(0.2, time + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(800, time);
+  filter.frequency.linearRampToValueAtTime(1200, time + 0.03);
+  filter.frequency.linearRampToValueAtTime(600, time + 0.35);
+  osc.connect(filter);
+  osc2.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(time);
+  osc2.start(time);
+  osc.stop(time + 0.4);
+  osc2.stop(time + 0.4);
+}
+
+function playTon(ctx, time) {
+  // Wood block / knock sound
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(400, time);
+  osc.frequency.exponentialRampToValueAtTime(200, time + 0.06);
+  gain.gain.setValueAtTime(0.6, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(time);
+  osc.stop(time + 0.1);
+  // Add click attack
+  const click = ctx.createBufferSource();
+  click.buffer = createNoiseBuffer(ctx, 0.01);
+  const clickFilter = ctx.createBiquadFilter();
+  clickFilter.type = 'bandpass';
+  clickFilter.frequency.value = 3000;
+  clickFilter.Q.value = 2;
+  const clickGain = ctx.createGain();
+  clickGain.gain.setValueAtTime(0.5, time);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
+  click.connect(clickFilter);
+  clickFilter.connect(clickGain);
+  clickGain.connect(ctx.destination);
+  click.start(time);
+}
+
+function playRin(ctx, time) {
+  // Triangle / chime - high metallic ring
+  const freqs = [2000, 3000, 5000];
+  freqs.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, time);
+    gain.gain.setValueAtTime(0.2 / (i + 1), time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(time);
+    osc.stop(time + 0.85);
+  });
+}
+
 const soundFunctions = {
   taiko: playTaiko,
   suzu: playSuzu,
@@ -146,6 +224,9 @@ const soundFunctions = {
   piko: playPiko,
   poron: playPoron,
   shara: playShara,
+  pyu: playPyu,
+  ton: playTon,
+  rin: playRin,
 };
 
 // ===== Play a single instrument sound =====
